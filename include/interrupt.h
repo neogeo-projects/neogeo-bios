@@ -1,6 +1,9 @@
 #ifndef _INTERRUPT_H
 #define _INTERRUPT_H
 
+#define IRQACK_VBLANK   0x0004  /* IRQ1 */
+#define IRQACK_TIMER    0x0002  /* IRQ2 */
+
 void __attribute__((interrupt)) vblank_handler(void);
 void __attribute__((interrupt)) hblank_handler(void);
 void __attribute__((interrupt)) default_handler(void);

@@ -17,7 +17,7 @@
 typedef struct {
     volatile uint16_t *pc;                       /* Current command ptr */
     volatile uint16_t *call_sp[CALL_STACK_MAX];  /* sub-list call stack */
-    int8_t sp;                          /* current stack index (-1 = empty) */
+    int8_t sp;                                   /* current stack index (-1 = empty) */
     uint8_t data_code;
     uint16_t data_format;
     uint16_t vram_addr;

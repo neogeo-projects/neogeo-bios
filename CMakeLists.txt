@@ -5,13 +5,23 @@ if(NOT CMAKE_BUILD_TYPE)
   set(CMAKE_BUILD_TYPE Release CACHE STRING "Choose the type of build." FORCE)
 endif()
 
+# Speed up rebuilds if ccache is available.
+option(ENABLE_CCACHE "Use ccache for faster rebuilds" ON)
+if(ENABLE_CCACHE)
+  find_program(CCACHE_PROGRAM ccache)
+  if(CCACHE_PROGRAM)
+    set(CMAKE_C_COMPILER_LAUNCHER ${CCACHE_PROGRAM})
+    set(CMAKE_ASM_COMPILER_LAUNCHER ${CCACHE_PROGRAM})
+  endif()
+endif()
+
 # Set target architecture
 set(CMAKE_SYSTEM_NAME Generic)
 set(CMAKE_SYSTEM_PROCESSOR m68k)
 
 # Set target tools
 set(CMAKE_C_COMPILER m68k-linux-gnu-gcc)
-set(CMAKE_C_FLAGS "-m68000 -O2 -fstack-usage -Wl,--gc-sections -ffunction-sections -fdata-sections -Wl,-Map,bios.map")
+set(CMAKE_C_FLAGS "-m68000 -O2 -fstack-usage -ffreestanding -fno-builtin -Wl,--gc-sections -ffunction-sections -fdata-sections -Wl,-Map,bios.map")
 
 set(CMAKE_ASM_COMPILER m68k-linux-gnu-gcc)
 set(CMAKE_ASM_FLAGS "-m68000 -x assembler-with-cpp")
@@ -28,7 +38,6 @@ ExternalProject_Add(
     checksum
     SOURCE_DIR ${CMAKE_SOURCE_DIR}/tools/checksum
     CMAKE_ARGS -DCMAKE_INSTALL_PREFIX=${CMAKE_BINARY_DIR}
-    BUILD_ALWAYS 1
 )
 
 add_executable(${PROJECT_NAME}.elf
@@ -37,15 +46,19 @@ add_executable(${PROJECT_NAME}.elf
     "src/bios_calls.c"
     "src/bios_test.c"
     "src/bios.c"
+    "src/calendar.c"
     "src/coin.c"
     "src/eyecatcher.c"
+    "src/game_menu.c"
     "src/graphic.c"
     "src/how_to_play.c"
     "src/input.c"
     "src/interrupt.c"
-    "src/main.c"
+    "src/led.c"
     "src/mess_out.c"
     "src/service.c"
+    "src/service_dips.c"
+    "src/service_hardware.c"
     "src/utils.c"
     "src/vectors.c"
 )
@@ -86,7 +99,7 @@ add_custom_command(TARGET ${PROJECT_NAME}.elf POST_BUILD
 )
 
 # Convert ELF to raw binary
-# Raw binary means little endian, most convert it back to big endian.
+# Raw binary means little endian, must convert it back to big endian.
 add_custom_command(TARGET ${PROJECT_NAME}.elf POST_BUILD
     COMMAND ${OBJCOPY} -O binary --pad-to=0xC20000 --gap-fill 0xFF ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/${PROJECT_NAME}.elf ${CMAKE_RUNTIME_OUTPUT_DIRECTORY}/${PROJECT_NAME}.swp
     COMMENT "Creating raw BIOS ROM image"

@@ -6,20 +6,19 @@
 #include "how_to_play.h"
 #include "mess_out.h"
 #include "service.h"
+#include "service_dips.h"
+#include "service_hardware.h"
 #include "utils.h"
 
 #include "bios.h"
 
-uint16_t frame_counter = 0;
-uint8_t menu = MENU_CROSSHATCH;
-
-void init() {
+__attribute__((used, section(".text._start")))
+void _start() {
     __asm__ volatile ("move #0x2700, %sr");  // Disable interrupts
     *WATCHDOG = 0;
     *IRQ_ACK = 0x07;
     *LSPCMODE = 0x4000;
 
-    *BIOS_SWPMODE = 0xFF;
     *REG_BRDFIX = 0;
     *REG_SWPBIOS = 0;
     *REG_RESETCL1 = 0;
@@ -27,25 +26,38 @@ void init() {
 
     test_led();
     test_work_ram();
+#if defined(SYSTEM_MVS)    
     test_backup_ram();
+#endif    
     test_palette_ram();
     test_video_ram();
 
-    uint8_t request_reset_backup = 0;
-    while (0 == *REG_DIPSW) {
-        test_work_ram();
-        test_backup_ram();
-        request_reset_backup = 1;
-    }
-    if (1 == request_reset_backup) {
-        if (0 == *REG_DIPSW) {
-            reset_backup_ram();
-        }        
+    *BIOS_SWPMODE = 0xFF;
+
+    // Test work RAM in an 'infinate' loop if all dips are active
+    // Note: Should not depend on any defined variables laying in work ram.
+    if (0 == *REG_DIPSW) {
+        reset_fix_layer();
+        reset_palettes();
+
+        *(uint32_t *)0x400002 = 0x0EEE0000;     // Palette 0
+        *BIOS_MESS_BUSY = 1;
+        *(volatile uint32_t *) BIOS_MESS_BUFFER = (uint32_t)work_ram_test;
+        *BIOS_MESS_POINT = BIOS_MESS_BUFFER_PTR + sizeof(uint32_t);
+        *BIOS_MESS_BUSY = 0;
+        mess_out();
+
+        while (0 == *REG_DIPSW) {
+            test_work_ram();
+#if defined(SYSTEM_MVS)
+            test_backup_ram();                  // Original BIOS also test/reset Backup-RAM
+#endif
+        }
+        reset_backup_ram();
     }
 
     test_rtc();
-
-    test_bios_checksum();   
+    test_bios_checksum();
     test_sound();
     test_memory_card();
 
@@ -56,31 +68,7 @@ void init() {
         *BIOS_MVS_FLAG = 0x00;
     }
     
-    *BIOS_COUNTRY_CODE = *SROM_COUNTRY_CODE;  
-
-    // Test user-ram, why only 7fff? because 8000 * 2 == 10000
-    // Test backup-ram string, if all dip switch are down, jump to test user-ram again(?) and than zero + write backup ram from fixed variables.
-    // if rewrite, write 0x23 -> 0xd00122 and then 0xffff * 8 -> 0xd00124+
-    // 0xf0f0f0f0 -> 0xd001ac
-    // 0xffff -> 0xd001b0
-    // test vram
-    // If all dipswitch low
-    //      loop until dipswitch not low
-    // else
-    // test RTC
-    // wait_for_rtc_pulse_edge()
-    // start frame_counter
-    // enable interrupts
-    // send 0x8 command to RTC
-    // wait_for_rtc_pulse_edge()
-    // disable interrupts
-    // send 0x7 command to RTC
-    // check if frame is > 57 and < 64
-    // checksum-check
-    //      add each byte of 0x00->0x7F to a uint8_t. watchdog each run
-    //      add each byte of 0xC00082->0xC1FFFF to same uint_8. watchdog each run
-    //      compare with 0xc00080
-    // check memcard inserted and header string
+    *BIOS_COUNTRY_CODE = *SROM_COUNTRY_CODE;
 
     setup_backup_ram();
     controller_setup();
@@ -88,46 +76,20 @@ void init() {
     *IRQ_ACK = 0x07;                            // Ack all interrupts
     __asm__ volatile ("move #0x2000, %sr");     // Set interrupt mask to level 2
 
-    // If no game was found (could not read NGH-number), show test-menu
-    if (*BRAM_FIRST_PLAYABLE_SLOT == 0xFF) {
-        while(1) {
-            if (menu == MENU_CROSSHATCH) {
-                show_crosshatch_test();
-            } else if (menu == MENU_COLOR) {
-                show_color_test();
-            } else if (menu == MENU_IO) {
-                show_io_test();
-            } else if (menu == MENU_SOUND_TEST) {
-                show_sound_test();
-            }
-
-            while ((*BIOS_STATCHANGE_RAW & 0x01) == 0) {
-                if (menu == MENU_IO) {
-                    update_io_test();
-                } else if (menu == MENU_SOUND_TEST) {
-                    update_sound_test();
-                }
-                wait_for_vblank();
-            }
-
-            menu = menu + 1;
-            if (menu >= MAX_NUM_MENUS) {
-                menu = MENU_CROSSHATCH;
-            }
-            wait_for_vblank();
-            reset_fix_layer();
-            reset_palettes();
-        }
-    }  
-
-    *REG_SLOT = *BRAM_FIRST_PLAYABLE_SLOT;
-    if (0xFF == find_game_data_block()) {
-        init_game_data();
-    } else {
-        load_game_data();
-        *BIOS_SYSRET_STATUS = 0;
-        system_return();
+    *BIOS_SYSRET_STATUS = 0;
+ 
+    unlock_backup_ram();
+    *BRAM_SLOT_CURSOR = 8;
+    if (0xFF != *BRAM_FIRST_PLAYABLE_SLOT) {
+        *BRAM_SLOT_CURSOR = *BRAM_FIRST_PLAYABLE_SLOT;
+        lock_backup_ram();        
+        enable_slot(*BRAM_FIRST_PLAYABLE_SLOT);
+        *BIOS_SWPMODE = 0;
+        *BIOS_USER_REQUEST = USER_REQUEST_INIT;
+        SUBR_CART_USER();
     }
+    lock_backup_ram();
+    system_return();
 };
 
 void start_game() {
@@ -159,39 +121,69 @@ void set_default_values() {
     *BIOS_INT1_SKIP = 0;        // Only used to skip input when checking for RTC-pulse with interrupts enabled?
 }
 
-void software_dips() {
-    // TODO: Read from BRAM instead
+void enable_slot(uint8_t slot) {
+    wait_for_z80();
+    unlock_backup_ram();
+    *BRAM_SLOT_SELECTED = slot;
+    lock_backup_ram();
+    *REG_SLOT = slot;
+    *REG_CRTFIX = 0;
+    *REG_SWPROM = 0;
+}
 
-    // Country region from System ROM
-    uint8_t region = *SROM_COUNTRY_CODE;
+void change_slot_incremental() {
+    uint8_t count = *BRAM_SLOT_COUNT;
+    if (count == 0 || count > BRAM_MAX_SLOTS) {
+        return;
+    }
+    uint8_t slot = *BRAM_SLOT_SELECTED + 1;
+    if (slot >= count) {
+        slot = 0;
+    }
+    for (uint8_t i = 0; i < count; i++) {
+        if (BIOS_NGH_BLOCK[slot].ngh != 0x0000) {
+            enable_slot(slot);
+            return;
+        }
+        slot++;
+        if (slot >= count) {
+            slot = 0;
+        }
+    }
+}
 
-    // Get adress for the correct software dips based on region
-    uint32_t dips_addr = ROM_SOFTDIP_TABLE[region];
+void change_slot_decremental() {
+    uint8_t count = *BRAM_SLOT_COUNT;
+    if (count == 0 || count > BRAM_MAX_SLOTS) {
+        return;
+    }
+    uint8_t slot = *BRAM_SLOT_SELECTED;
+    if (slot == 0) {
+        slot = count - 1;
+    } else {
+        slot--;
+    }
+    for (uint8_t i = 0; i < count; i++) {
+        if (BIOS_NGH_BLOCK[slot].ngh != 0x0000) {
+            enable_slot(slot);
+            return;
+        }
+        if (slot == 0) {
+            slot = count - 1;
+        } else {
+            slot--;
+        }
+    }
+}
 
-    // Cast it to have uint8_t as offset when looping through values
-    volatile uint8_t *dips = (volatile uint8_t *)(uintptr_t)dips_addr;
-    dips = dips + 16;   // Game name = 16 byte
+uint8_t validate_security_code() {
+    volatile const uint8_t *rom_bytes = (volatile const uint8_t *)ROM_SECURITY_CODE_PTR;
 
-    // Get timed/counter options
-    for (uint8_t i = 0; i < 6; i++) {
-        BIOS_GAME_DIP[i] = dips[i];
+    for (uint8_t i = 0; i < sizeof(security_bytes); i++) {
+        if (rom_bytes[i] != security_bytes[i]) {
+            return 0;
+        }
     }
 
-    // Get default values for all 10 potential soft dips.
-    for (uint8_t i = 6; i < 16; i++) {
-        BIOS_GAME_DIP[i] = dips[i] >> 4;
-    }
-
-/*
-    Metal Slug default dipsw
-
-    12 38 04 12 12 02 01 04 03 00
-    continue        12      off/on*
-    difficulty      38      1,2,3,4*,5,6,7,8
-    play time       04      60*,70,80,90
-    demo sound      12      off,on*
-    play manual     12      off,on*
-    blood           02      off*,on      
-
-*/
+    return 1;
 }

@@ -19,15 +19,15 @@ jobs:
           - name: mvs-eu
             SYSTEM: MVS
             REGION: EUROPE
-            BUILD_TYPE: Release
           - name: mvs-us
             SYSTEM: MVS
             REGION: USA
-            BUILD_TYPE: Release
           - name: mvs-jp
             SYSTEM: MVS
             REGION: JAPAN
-            BUILD_TYPE: Release
+
+    env:
+      BUILD_TYPE: Release
 
     steps:
     - uses: actions/checkout@v4
@@ -38,10 +38,10 @@ jobs:
           sudo apt-get install -y --no-install-recommends cmake gcc-m68k-linux-gnu libc6-dev-m68k-cross
 
     - name: Configure CMake (${{ matrix.name }})
-      run: cmake -B ${{github.workspace}}/build -DCMAKE_BUILD_TYPE=${{ matrix.BUILD_TYPE }} -DSYSTEM=${{ matrix.SYSTEM }} -DREGION=${{ matrix.REGION }}
+      run: cmake -B ${{ github.workspace }}/build -DCMAKE_BUILD_TYPE=${{ env.BUILD_TYPE }} -DSYSTEM=${{ matrix.SYSTEM }} -DREGION=${{ matrix.REGION }}
 
     - name: Build (${{ matrix.name }})
-      run: cmake --build ${{github.workspace}}/build --config ${{ matrix.BUILD_TYPE }}
+      run: cmake --build ${{ github.workspace }}/build --config ${{ env.BUILD_TYPE }}
       
     - name: Build (${{ matrix.name }})
       run: cmake --build build --parallel

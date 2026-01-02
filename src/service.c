@@ -2,324 +2,281 @@
 
 #include "backup_ram.h"
 #include "bios.h"
-#include "graphic.h"
+#include "calendar.h"
 #include "mess_out.h"
+#include "service_hardware.h"
+#include "service_dips.h"
 #include "utils.h"
 
 #include "service.h"
 
-void show_crosshatch_test() {
-    // Palette 0
-    *(volatile uint32_t *)0x400002 = 0x0EEE0000;
-    // Palette 1
-    if (*BIOS_COUNTRY_CODE == BIOS_COUNTRY_JAPAN) {
-        *(volatile uint32_t *)0x400022 = 0x0E000000;
-    } else if (*BIOS_COUNTRY_CODE == BIOS_COUNTRY_USA) {
-        *(volatile uint32_t *)0x400022 = 0x00EE0000;
-    } else if (*BIOS_COUNTRY_CODE == BIOS_COUNTRY_EUROPE) {
-        *(volatile uint32_t *)0x400022 = 0x000E0000; 
-    }
+void show_bios_menu() {
+    reset_fix_layer();
+    reset_palettes();
+    *REG_NOSHADOW = 0;
 
-    *BIOS_MESS_BUSY = 1;
+    uint8_t menu = MENU_BIOS_MAIN;
+    int8_t cursor_sp = 0;
+    int8_t cursor_stack[4] = {0};      // Previous cursor stack. Max depth of the menu system (4).
+    *SERVICE_CURSOR = 0;
+    *SERVICE_CURSOR_SIDEWAYS = 0;
 
-    // Crosshatch design
-    *REG_VRAMMOD = 1;
-    *REG_VRAMADDR = 0x7000;
-    for (uint8_t i = 0; i < 20; i++) {
-        for (uint8_t x = 0; x < 16; x++) {
-            *REG_VRAMRW = 1;
-            __asm__ volatile ("nop");
-            *REG_VRAMRW = 3;
+    while(1) {
+        if (menu == MENU_BIOS_MAIN) {
+            show_bios_menu_service();
+        } else if (menu == MENU_BIOS_HARDWARE) {
+            show_bios_hardware_test();
+        } else if (menu == MENU_BIOS_HARD_DIPS) {
+            show_bios_menu_hard_dips();
+        } else if (menu == MENU_BIOS_SOFT_DIPS) {
+            show_bios_menu_soft_dips();
+        } else if (menu == MENU_BIOS_SOFT_DIPS_CABINET) {
+            show_bios_menu_soft_dips_cabinet();
+        } else if (menu == MENU_BIOS_SOFT_DIPS_GAME) {
+            show_bios_menu_soft_dips_game();
+        } else if (menu == MENU_BIOS_EXIT) {
+            reset_system();
         }
-
-        for (uint8_t x = 0; x < 16; x++) {
-            *REG_VRAMRW = 2;
-            __asm__ volatile ("nop");
-            *REG_VRAMRW = 4;            
+        uint8_t previous_menu = menu;
+        while (previous_menu == menu) {
+            if (menu == MENU_BIOS_MAIN) {
+                update_bios_menu_service();
+                if (((*BIOS_P1CHANGE) & MENU_BUTTON_FORWARD) != 0) {
+                    menu = MENU_BIOS_MAIN + (*SERVICE_CURSOR + 1);
+                    if (cursor_sp < sizeof(cursor_stack)) {
+                        cursor_stack[cursor_sp++] = *SERVICE_CURSOR;
+                        *SERVICE_CURSOR = 0;
+                        *SERVICE_CURSOR_SIDEWAYS = 0;
+                    }
+                }
+            } else if (menu == MENU_BIOS_HARD_DIPS) {
+                update_bios_menu_hard_dips();
+            } else if (menu == MENU_BIOS_SOFT_DIPS) {
+                update_bios_menu_soft_dips();
+                if (((*BIOS_P1CHANGE) & MENU_BUTTON_FORWARD) != 0) {
+                    if (0 == *SERVICE_CURSOR) {
+                        menu = MENU_BIOS_SOFT_DIPS_CABINET;
+                    } else {
+                        if (BIOS_NGH_BLOCK[*SERVICE_CURSOR - 1].ngh == 0x0000) {
+                            continue;
+                        }
+                        menu = MENU_BIOS_SOFT_DIPS_GAME;
+                        *SOFT_DIPS_GAME_SELECT = *SERVICE_CURSOR - 1;
+                    }
+                    // TOOD: Maybe make an else to handle max depth scenario?
+                    if (cursor_sp < sizeof(cursor_stack)) {
+                        cursor_stack[cursor_sp++] = *SERVICE_CURSOR;
+                        *SERVICE_CURSOR = 0;
+                        *SERVICE_CURSOR_SIDEWAYS = 0;
+                    }
+                } else if (((*BIOS_P1CHANGE) & MENU_BUTTON_BACKWARD) != 0) {
+                    menu = MENU_BIOS_MAIN;
+                    *SERVICE_CURSOR = (cursor_sp > 0) ? cursor_stack[--cursor_sp] : 0;
+                }
+            } else if (menu == MENU_BIOS_SOFT_DIPS_CABINET) {
+                update_bios_menu_soft_dips_cabinet();
+                if (((*BIOS_P1CHANGE) & MENU_BUTTON_BACKWARD) != 0) {
+                    menu = MENU_BIOS_SOFT_DIPS;
+                    *SERVICE_CURSOR = (cursor_sp > 0) ? cursor_stack[--cursor_sp] : 0;
+                }
+            } else if (menu == MENU_BIOS_SOFT_DIPS_GAME) {
+                update_bios_menu_soft_dips_game();
+                if (((*BIOS_P1CHANGE) & MENU_BUTTON_BACKWARD) != 0) {
+                    menu = MENU_BIOS_SOFT_DIPS;
+                    *SERVICE_CURSOR = (cursor_sp > 0) ? cursor_stack[--cursor_sp] : 0;
+                }
+            }
+            if (menu != MENU_BIOS_MAIN && menu != MENU_BIOS_SOFT_DIPS) {
+                if (((*BIOS_P1CHANGE) & MENU_BUTTON_BACKWARD) != 0) {
+                    menu = MENU_BIOS_MAIN;
+                    *SERVICE_CURSOR = (cursor_sp > 0) ? cursor_stack[--cursor_sp] : 0;
+                }
+            }
+            wait_for_vblank();
         }
+        reset_fix_layer();
+        reset_palettes();
     }
-
-    // Left columns
-    *REG_VRAMADDR = 0x7000;
-    for (uint8_t i = 0; i < 96; i++) {
-        __asm__ volatile ("nop");
-        __asm__ volatile ("nop");
-        __asm__ volatile ("nop");
-        uint16_t value = *REG_VRAMRW;
-        *REG_VRAMRW = value | 0x1000;
-    }
-
-    // Right columns
-    *REG_VRAMADDR = 0x74A0;
-    for (uint8_t i = 0; i < 96; i++) {
-        __asm__ volatile ("nop");
-        __asm__ volatile ("nop");
-        __asm__ volatile ("nop");
-        uint16_t value = *REG_VRAMRW;
-        *REG_VRAMRW = value | 0x1000;
-    }
-
-    // Top rows
-    *REG_VRAMADDR = 0x7002;
-    *REG_VRAMMOD = 0x20;
-    for (uint8_t i = 0; i < 40; i++) {
-        __asm__ volatile ("nop");
-        __asm__ volatile ("nop");
-        __asm__ volatile ("nop");
-        uint16_t value = *REG_VRAMRW;
-        *REG_VRAMRW = value | 0x1000;
-    }
-
-    // Bottom rows
-    *REG_VRAMADDR = 0x701D;
-    for (uint8_t i = 0; i < 40; i++) {
-        __asm__ volatile ("nop");
-        __asm__ volatile ("nop");
-        __asm__ volatile ("nop");
-        uint16_t value = *REG_VRAMRW;
-        *REG_VRAMRW = value | 0x1000;
-    }   
-
-    *BIOS_MESS_BUSY = 0;
 }
 
-void show_color_test() {
-    *(uint16_t *)0x400024 = 0x0E00;
-    *(uint16_t *)0x400044 = 0x00E0;
-    *(uint16_t *)0x400064 = 0x000E;
-    *(uint16_t *)0x400084 = 0x0EEE;    
-    *PALETTE_REFERENCE = 0x8000;
-    *PALETTE_BACKGROUND = 0x0000;
-    *(uint16_t *)0x400002 = 0x0EEE;
-
-    *BIOS_MESS_BUSY = 1;
-
-    *(volatile uint32_t *) BIOS_MESS_BUFFER = (uint32_t)red_green_blue;
-    *BIOS_MESS_POINT = BIOS_MESS_BUFFER_PTR + sizeof(uint32_t);
-
-    *BIOS_MESS_BUSY = 0;
-}
-
-void show_io_test() {
-    *(uint16_t *)0x400002 = 0x0EEE;
-
-    *BIOS_MESS_BUSY = 1;
-
-    *(volatile uint32_t *) BIOS_MESS_BUFFER = (uint32_t)io;
-    *BIOS_MESS_POINT = BIOS_MESS_BUFFER_PTR + sizeof(uint32_t);
-
-    *SERVICE_LED_MARQUEE = 1;
-    *SERVICE_LED_COIN = 1;
-
-    *BIOS_MESS_BUSY = 0;    
-}
-
-void update_io_test() {
-    *BIOS_MESS_BUSY = 1;
-
-    *(volatile uint32_t *) *BIOS_MESS_POINT = (uint32_t)io_values;
-    *BIOS_MESS_POINT = *BIOS_MESS_POINT + sizeof(uint32_t);
-
-    volatile uint8_t *address = (volatile uint8_t *)0x10FC00;
-    uint8_t frame_count_low = *BIOS_FRAME_COUNTER_LOW;
-
-    if ((frame_count_low & 0x3F) == 0) {
-        // EL
-        *SERVICE_LED_MARQUEE += 1;
-        if (*SERVICE_LED_MARQUEE > *BRAM_SLOT_COUNT) {
-            *SERVICE_LED_MARQUEE = 1;
-        }
-        // LED
-        *SERVICE_LED_COIN += 1;
-        if (*SERVICE_LED_COIN > 9) {
-            *SERVICE_LED_COIN = 1;
-        }
-    }
-    // EL (Marquee) 
-    // TODO: Change the EL
-    uint16_t marquee_led_slot = *SERVICE_LED_MARQUEE | 0x30;
-    *(volatile uint16_t *)address = marquee_led_slot << 8 | 0x20;
-    address += 2;
-
-    // LED 1
-    // TODO: Change the LED
-    uint16_t coin_led = *SERVICE_LED_COIN | 0x30;
-    *(volatile uint16_t *)address = coin_led << 8 | coin_led;
-    address += 2;
-
-    // LED 2
-    // TODO: Change the LED
-    coin_led = (10 - *SERVICE_LED_COIN) | 0x30;
-    *(volatile uint16_t *)address = coin_led << 8 | coin_led;
-    address += 2;
-
-    // P1
-    uint8_t controller = *BIOS_P1CURRENT;
-    for (uint8_t i = 0; i < 8; i++) {
-        *address = (controller & 1) | 0x30;
-        controller >>= 1;
-        address++;
-    }
-    uint8_t start_select = *BIOS_STATCURRENT_RAW;
-    for (uint8_t i = 0; i < 2; i++) {
-        *address = (start_select & 1) | 0x30;
-        start_select >>= 1;
-        address++;
-    }
-    // P2
-    controller = *BIOS_P2CURRENT;
-    for (uint8_t i = 0; i < 8; i++) {
-        *address = (controller & 1) | 0x30;
-        controller >>= 1;
-        address++;
-    }
-    for (uint8_t i = 0; i < 2; i++) {
-        *address = (start_select & 1) | 0x30;
-        start_select >>= 1;
-        address++;
-    }
-    // Hardware dip switches
-    uint8_t hw_dipsw = ~(*REG_DIPSW);
-    for (uint8_t i = 0; i < 8; i++) {
-        *address = (hw_dipsw & 1) | 0x30;
-        hw_dipsw >>= 1;
-        address++;
-    }
-    // Test button
-    *address = ((~(*REG_SYSTYPE) & 0x80) >> 7) | 0x30;
-    address++;
-
-    uint8_t coin_service = *BRAM_COIN_STATUS_CURRENT;
-    for (uint8_t i = 0; i < 3; i++) {
-        *address = (coin_service & 1) | 0x30;
-        coin_service >>= 1;
-        address++;
-    }
-
-    *BIOS_MESS_BUSY = 0;
-}
-
-void show_sound_test() {
-    // Prepare the z80
-    *REG_SOUND = 0x3;
-    for (uint8_t i = 0; i < 5; i++) {
-        wait_for_vblank();
-    }
-    *REG_SOUND = 0x7;
-
+void show_bios_menu_service() {
     *(uint32_t *)0x400002 = 0x0EEE0000; // Palette 0
     *(uint32_t *)0x400022 = 0x0E000000; // Palette 1
     *BIOS_MESS_BUSY = 1;
 
-    *(volatile uint32_t *) BIOS_MESS_BUFFER = (uint32_t)sound;
+    *(volatile uint32_t *) BIOS_MESS_BUFFER = (uint32_t)bios_menu;
     *BIOS_MESS_POINT = BIOS_MESS_BUFFER_PTR + sizeof(uint32_t);
 
-    *SERVICE_SOUND_CURSOR = 0;
-    *SERVICE_SOUND_SELECT = 0;
+    volatile uint16_t *address = (volatile uint16_t *)*BIOS_MESS_POINT;
+    *address++ = 0x0000;
+    *address++ = 0x0000;
+
+    _read_calendar();
+
+    if (*BIOS_COUNTRY_CODE == BIOS_COUNTRY_JAPAN || *BIOS_COUNTRY_CODE == BIOS_COUNTRY_EUROPE) {
+        address = _add_large_char(address, 0, 0x72DA, *BIOS_YEAR);
+        address = _add_large_char(address, 0, 0x727A, *BIOS_MONTH);
+        address = _add_large_char(address, 0, 0x721A, *BIOS_DAY);
+    } else if (*BIOS_COUNTRY_CODE == BIOS_COUNTRY_USA) {
+        address = _add_large_char(address, 0, 0x72DA, *BIOS_YEAR);
+        address = _add_large_char(address, 0, 0x721A, *BIOS_MONTH);
+        address = _add_large_char(address, 0, 0x727A, *BIOS_DAY);
+    }
+
+    *address++ = 0x0000;
+    *BIOS_MESS_POINT = (volatile uint32_t)address;        
+
     *BIOS_MESS_BUSY = 0;
 }
 
-void update_sound_test() {   
+void update_bios_menu_service() {
     *BIOS_MESS_BUSY = 1;
+    int8_t menu_items = 7;
+    _move_cursor(menu_items, 0, 0);
 
-    // If 'A' button is pressed
-    if ((*BIOS_P1CHANGE & 0x10) != 0) {
-        // No sound
-        if (0 == *SERVICE_SOUND_CURSOR) {
-            *REG_SOUND = 0x3;
-            *SERVICE_SOUND_SELECT = 0;
-        // Left
-        } else if (1 == *SERVICE_SOUND_CURSOR) {
-            *REG_SOUND = 0x5D;
-            *SERVICE_SOUND_SELECT = 1;
-        // Right
-        } else if (2 == *SERVICE_SOUND_CURSOR) {
-            *REG_SOUND = 0x5C;
-            *SERVICE_SOUND_SELECT = 2;
-        // Center
-        } else if (3 == *SERVICE_SOUND_CURSOR) {
-            *REG_SOUND = 0x5E;
-            *SERVICE_SOUND_SELECT = 3;
+    volatile uint16_t *address = (volatile uint16_t *)*BIOS_MESS_POINT;
+    *address++ = 0x0000;
+    *address++ = 0x0000;
+
+    *address++ = 0x0003;
+    *address++ = 0x70E5;
+
+    for (int8_t i = 0; i < menu_items; i++) {
+        if (i != *SERVICE_CURSOR) {
+            *address++ = 0x0108;
+            *address++ = 0x20FF;  // Space (overwrite arrow)
+        } else {
+            *address++ = 0x1108;
+            *address++ = 0x11FF;  // Arrow
+        }
+        if (menu_items - 1 != i) {
+            *address++ = 0x0005;
+            *address++ = 0x0002;
         }
     }
 
+    *address++ = 0x0000;
+    *BIOS_MESS_POINT = (volatile uint32_t)address;
+
+    *BIOS_MESS_BUSY = 0;    
+}
+
+void show_bios_hardware_test() {
+    uint8_t menu = MENU_CROSSHATCH;
+
+    while(1) {
+        if (menu == MENU_CROSSHATCH) {
+            show_crosshatch_test();
+        } else if (menu == MENU_COLOR) {
+            show_color_test();
+        } else if (menu == MENU_IO) {
+            show_io_test();
+        } else if (menu == MENU_SOUND_TEST) {
+            show_sound_test();
+        } else if (menu == MENU_MEMORY_CARD) {
+            show_memory_card_test();
+        } else if (menu == MENU_CLEAR_BACKUP) {
+            show_backup_clear();
+        } else if (menu == MENU_SETUP_CALENDAR) {
+            show_setup_calendar();
+        }
+
+        while (((*BIOS_STATCHANGE_RAW) & 0x01) == 0) {
+            if (menu == MENU_IO) {
+                update_io_test();
+            } else if (menu == MENU_SOUND_TEST) {
+                update_sound_test();
+            } else if (menu == MENU_MEMORY_CARD) {
+                update_memory_card_test();
+            } else if (menu == MENU_CLEAR_BACKUP) {
+                update_backup_clear();
+            } else if (menu == MENU_SETUP_CALENDAR) {
+                update_setup_calendar();
+            }
+            wait_for_vblank();
+        }
+
+        menu = menu + 1;
+        if (menu >= MENU_CROSSHATCH + MAX_NUM_MENUS) {
+            menu = MENU_CROSSHATCH;
+        }
+
+        wait_for_vblank();
+
+        *REG_SOUND = 0x3;   // Reset sound
+        reset_fix_layer();
+        reset_palettes();
+    }
+}
+
+// TODO: Rename function to match a printout of BCD
+volatile uint16_t * _add_large_char(volatile uint16_t *address, uint8_t selected, uint16_t position, uint16_t value) {
+    *address++ = 0x0003;
+    *address++ = position;
+    if (selected == 1) {    
+        *address++ = 0x1108;
+    } else {
+        *address++ = 0x0108;
+    }
+    uint8_t upper = (value >> 4) & 0x0F;
+    uint8_t lower = value & 0x0F;
+    *address++ = ((upper + 0x30) << 8) | (lower + 0x30);
+    *address++ = 0xFFFF;
+    return address;
+}
+
+volatile uint16_t * _add_string(volatile uint16_t *address, uint8_t selected, uint16_t position, const char *string) {
+    *address++ = 0x0003;
+    *address++ = position;
+    if (selected == 1) {
+        *address++ = 0x1108;
+    } else {
+        *address++ = 0x0108;
+    }
+    for (uint8_t c = 0; string[c] != '\0'; c++) {
+        *(volatile uint8_t *)address = (string[c]);
+        address = (volatile uint16_t *)((volatile uint8_t *)address + 1);
+    }
+    if (((uint32_t)address & 1) != 0 ) {
+        *(volatile uint8_t *)address = 0xFF;
+        address = (volatile uint16_t *)((volatile uint8_t *)address + 1);
+    } else {
+        *address++ = 0xFFFF;
+    }
+    return address;
+}
+
+// Items counted from 0
+void _move_cursor(int8_t menu_items, int8_t side_items, int8_t pages) {
     // Menu "go-up"
     if ((*BIOS_P1CHANGE & 0x1) != 0) {
-        *SERVICE_SOUND_CURSOR -= 1;
-        if (*SERVICE_SOUND_CURSOR < 0) {
-            *SERVICE_SOUND_CURSOR = 3;
+        if (*SERVICE_CURSOR <= 0) {
+            *SERVICE_CURSOR = menu_items - 1;
+            if (*SERVICE_CURSOR_PAGE > 0) {
+                *SERVICE_CURSOR_PAGE -= 1;
+            }
+        } else {
+            *SERVICE_CURSOR -= 1;
         }
     // Menu "go-down"
     } else if ((*BIOS_P1CHANGE & 0x2) != 0) {
-        *SERVICE_SOUND_CURSOR += 1;
-        if (*SERVICE_SOUND_CURSOR > 3) {
-            *SERVICE_SOUND_CURSOR = 0;
-        }        
-    }
-
-    *(volatile uint32_t *) *BIOS_MESS_POINT = (uint32_t)sound;
-    *BIOS_MESS_POINT = *BIOS_MESS_POINT + sizeof(uint32_t);
-
-    volatile uint16_t *address = (volatile uint16_t *)0x10FC00;
-    *address = 0x2002;
-    address += 1;    
-    *address = 0x0003;
-    address += 1;
-    *address = 0x718a;
-    address += 1;
-
-    // Print the cursor
-    for (uint8_t i = 0; i < 4; i++) {
-        if (i == *SERVICE_SOUND_CURSOR) {
-            *address = ((uint16_t)0x11 << 8) | 0x08;    // Palette 1, additional 0x100 to char
-            address += 1;
-            *address = 0x11FF;                          // Arrow
-            address += 1;
+        if (*SERVICE_CURSOR >= (menu_items - 1)) {
+            *SERVICE_CURSOR = 0;
+            if (*SERVICE_CURSOR_PAGE < pages) {
+                *SERVICE_CURSOR_PAGE += 1;
+            }
         } else {
-            *address = ((uint16_t)0x01 << 8) | 0x08;    // Palette 0, additional 0x100 to char
-            address += 1;
-            *address = 0x20FF;                          // Space (must be here to clear the arrow)
-            address += 1;
+            *SERVICE_CURSOR += 1;
         }
-        *address = 0x0005;
-        address += 1;
-        *address = 0x0002;
-        address += 1;        
+    // Menu "go-left"
+    } else if ((*BIOS_P1CHANGE & 0x4) != 0) {
+        if (*SERVICE_CURSOR_SIDEWAYS > 0) {
+            *SERVICE_CURSOR_SIDEWAYS -= 1;
+        }
+    // Menu "go-right"
+    } else if ((*BIOS_P1CHANGE & 0x8) != 0) {
+        if (*SERVICE_CURSOR_SIDEWAYS < side_items) {
+            *SERVICE_CURSOR_SIDEWAYS += 1;
+        }
     }
-
-    *address = 0x0003;
-    address += 1;
-    *address = 0x720a;
-    address += 1;
-
-    // Print the text
-    for (uint8_t i = 0; i < 4; i++) {
-        // Set the color for the selected option
-        if (i == *SERVICE_SOUND_SELECT) {
-            *address = ((uint16_t)0x11 << 8) | 0x08;    // Palette 1, additional 0x100 to char
-            address += 1;
-        } else {
-            *address = ((uint16_t)0x01 << 8) | 0x08;    // Palette 0, additional 0x100 to char
-            address += 1;
-        }
-
-        // Add the text from an array based on the loop iteration
-        for (uint8_t c = 0; sound_menu[i][c] != '\0'; c++) {
-            *(volatile uint8_t *)address = (sound_menu[i][c]);
-            address = (volatile uint16_t *)((volatile uint8_t *)address + 1);
-        }
-        if (((uint32_t)address & 1) != 0 ) {
-            *(volatile uint8_t *)address = 0xFF;
-            address = (volatile uint16_t *)((volatile uint8_t *)address + 1);
-        } else {
-            *address = 0xFFFF;
-            address += 1;            
-        }
-        *address = 0x0005;
-        address += 1;
-        *address = 0x0002;
-        address += 1;
-    }
-    *address = 0x000B;
-    *BIOS_MESS_BUSY = 0;
 }

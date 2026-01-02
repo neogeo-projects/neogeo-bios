@@ -1,6 +1,7 @@
 #include "backup_ram.h"
 #include "bios.h"
 #include "bios_calls.h"
+#include "calendar.h"
 #include "graphic.h"
 #include "mess_out.h"
 #include "utils.h"
@@ -54,35 +55,6 @@ void test_palette_ram() {
     *REG_PALBANK0 = 1;
     *PALETTE_REFERENCE = 0x8000;
     *PALETTE_BACKGROUND = 0x0000;
-};
-
-void test_work_ram() {
-    // Work RAM ($100000-$10FFFF)
-    uint16_t value = 0;
-    uint16_t offset = 0;
-    for (uint32_t i = 0; i < 0x10000; i += 2) {
-        *WATCHDOG = 0;
-        if (i > 0) {
-            offset = i / 2;
-        }
-        value = WORK_RAM[offset];
-        // Test all odd-bits
-        WORK_RAM[offset] = 0x5555;
-        if (WORK_RAM[offset] != 0x5555) {
-            print_error_msg(BIOS_ERROR_WORK_RAM, 0x100000 + i, 0x5555, WORK_RAM[offset]);
-        }
-        // Test all even-bits
-        WORK_RAM[offset] = 0xAAAA;
-        if (WORK_RAM[offset] != 0xAAAA) {
-            print_error_msg(BIOS_ERROR_WORK_RAM, 0x100000 + i, 0xAAAA, WORK_RAM[offset]);
-        }
-        // TODO: This is ugly. Make it more precise and use SP save + jmp as the original code did!
-        if ((i < 0xF250) || (i >= 0xF300)) {
-            WORK_RAM[offset] = 0x0000;
-        } else {
-            WORK_RAM[offset] = value;
-        }
-    }
 };
 
 void test_video_ram() {
@@ -174,6 +146,11 @@ void test_backup_ram() {
     }
 
     lock_backup_ram();
+
+    if (0 == *REG_DIPSW) {
+        reset_backup_ram();
+        return;
+    }
 
     for (uint8_t i = 0; i < BRAM_SIGNATURE_SIZE; i++) {
         if (BRAM_SIGNATURE_STR[i] != _bram_signature_str[i]) {

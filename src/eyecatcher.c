@@ -311,8 +311,6 @@ void play_bios_eyecatcher() {
 
     wait_for_z80();
     wait_for_vblank();
-    *REG_SOUND = 0x3;
-
-    *BIOS_SYSRET_STATUS = 3;
+    *REG_SOUND = 0x03;
     system_return();
 };

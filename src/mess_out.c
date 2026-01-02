@@ -232,6 +232,7 @@ void cmd_08(MESState* s) {
 }
 
 /* Command 9: Write Japanese text */
+// TODO: Fix support for Japanese
 void cmd_09(MESState* s) {
     while(1) {
         *WATCHDOG = 0x09;

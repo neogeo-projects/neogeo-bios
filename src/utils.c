@@ -1,3 +1,4 @@
+#include <stddef.h>
 #include "bios.h"
 
 #include "utils.h"
@@ -21,22 +22,6 @@ void nop_loop(uint8_t count) {
     for (int i = 0; i < count; i++) {
         __asm__ volatile ("nop");
     }
-}
-
-void write_rtc_command(uint8_t command) {
-    for (uint8_t i = 0; i < 4; i++) {        
-        *WATCHDOG = 0;
-        uint8_t write = command;
-        write &= 0x1;
-        *REG_RTCCTRL = write;
-        write |= 0x2;
-        *REG_RTCCTRL = write;
-        write ^= 0x2;
-        *REG_RTCCTRL = write;
-        command >>= 1;
-    }
-    *REG_RTCCTRL = 0x4;
-    *REG_RTCCTRL = 0x0;
 }
 
 void wait_for_rtc_pulse_edge(uint8_t *prev) {
@@ -150,4 +135,61 @@ void reset_sprites() {
         *WATCHDOG = 0;
         *REG_VRAMRW = (uint16_t)0xBE00;
     }    
+}
+
+void pause_system() {
+    __asm__ volatile ("move #0x2700, %sr");     // Disable interrupts
+    while(((*REG_DIPSW) & 0x80) == 0) {
+        *WATCHDOG = 0;
+    }
+    __asm__ volatile ("move #0x2000, %sr");     // Set interrupt mask to level 2
+}
+
+void reset_system() {
+    __asm__ volatile ("move.l #0x10F300, %sp");
+    __asm__ volatile ("jmp 0x00c00500.l");
+}
+
+// TODO: Make it volatile
+void *memset(void *ptr, int value, size_t num) {
+    unsigned char *p = (unsigned char *)ptr;
+    unsigned char v = (unsigned char)value;
+
+    while (num--) {
+        *WATCHDOG = 0;
+        *p++ = v;
+    }
+
+    return ptr;
+}
+
+// TODO: Make it volatile
+void *memcpy(void *dest, const void *src, size_t num) {
+    unsigned char *d = (unsigned char *)dest;
+    const unsigned char *s = (const unsigned char *)src;
+
+    while (num--) {
+        *WATCHDOG = 0;
+        *d++ = *s++;
+    }
+
+    return dest;
+}
+
+uint8_t pages_for_items(volatile uint8_t total_items, uint8_t per_page) {
+    uint8_t pages = 0;
+
+    if (per_page == 0 || total_items == 0) {
+        return pages;
+    }
+
+    while (total_items) {
+        pages++;
+        if (total_items <= per_page) {
+            break;
+        }
+        total_items -= per_page;
+    }
+
+    return pages - 1;
 }

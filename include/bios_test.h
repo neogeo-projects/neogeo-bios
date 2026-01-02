@@ -19,17 +19,46 @@ void test_led();
 void test_memory_card();
 void test_palette_ram();
 void test_video_ram();
-void test_work_ram();
 void test_sound();
 void test_rtc();
 
 void print_error_msg(uint8_t type, uint32_t memory_location, uint16_t expected, uint16_t actual);
 void _convert_hex_to_fix_ascii(uint8_t input, uint8_t *output_hi, uint8_t *output_lo);
 
-static const char _backup_ram_str[] = "NEO-GEO ";
-static const char _memory_card_str[] = "SNK ROM ";
-static const char _palette_test_str[] = "TESTING PALETTE";
+#include "bios.h"
 
+// Only in header because of the static inline.
+// Required to be able to overwrite the stack
+static inline void test_work_ram() {
+    // Work RAM ($100000-$10FFFF)
+    uint16_t value = 0;
+    uint16_t offset = 0;
+    for (uint32_t i = 0; i < 0x10000; i += 2) {
+        *WATCHDOG = 0;
+        if (i > 0) {
+            offset = i / 2;
+        }
+        value = WORK_RAM[offset];
+        // Test all odd-bits
+        WORK_RAM[offset] = 0x5555;
+        if (WORK_RAM[offset] != 0x5555) {
+            print_error_msg(BIOS_ERROR_WORK_RAM, 0x100000 + i, 0x5555, WORK_RAM[offset]);
+        }
+        // Test all even-bits
+        WORK_RAM[offset] = 0xAAAA;
+        if (WORK_RAM[offset] != 0xAAAA) {
+            print_error_msg(BIOS_ERROR_WORK_RAM, 0x100000 + i, 0xAAAA, WORK_RAM[offset]);
+        }
+        WORK_RAM[offset] = 0x0000;
+    }
+    __asm__ volatile ("move.l #0x10F300, %sp");
+};
+
+static const uint16_t work_ram_test[] = {
+    0x0003, 0x71ce,
+    0x0108, 0x574f, 0x524b, 0x2052, 0x414d, 0x2054, 0x4553, 0x54ff,
+    0x0000
+};
 static const uint16_t work_ram_error[] = {
     0x0001, 0xf0ff,
     0x2002,
@@ -40,7 +69,6 @@ static const uint16_t work_ram_error[] = {
     0x0007, 0x4144, 0x4452, 0x4553, 0x5320, 0x2020, 0x5752, 0x4954, 0x4520, 0x5245, 0x4144, 0xffff,
     0x0000,
 };
-
 static const uint16_t backup_ram_error[] = {
     0x0001, 0xf0ff,
     0x2002,

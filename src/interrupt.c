@@ -1,5 +1,6 @@
 #include "bios.h"
 #include "bios_calls.h"
+#include "game_menu.h"
 
 #include "interrupt.h"
 
@@ -11,6 +12,11 @@ void __attribute__((interrupt)) vblank_handler(void) {
     if (*BIOS_INT1_SKIP == 0) {
         mess_out();
         system_io();
+
+        if (*BIOS_GAME_MENU == GAME_MENU_VISIBLE) {
+            menu_update();
+        }
+
         *BIOS_VBLANK_CLEAR = 0;
     }
     *BIOS_INT1_FRAME_COUNTER += 1;

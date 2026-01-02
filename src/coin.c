@@ -1,5 +1,6 @@
 #include "backup_ram.h"
 #include "bios.h"
+#include "bios_calls.h"
 #include "utils.h"
 
 #include "coin.h"
@@ -54,20 +55,23 @@ void update_coin() {
         if (0x00 == *BRAM_DIP_GAME_START_FORCE) {
             // Reset compulsion timer
             // TODO: Not all regions have compulsion timer!
-            *BIOS_COMPULSION_TIMER = *BRAM_DIP_GAME_START_TIME;
-            *BIOS_COMPULSION_FRAME_TIMER = 59;   
+            *BIOS_COMPULSION_TIMER = *BRAM_DIP_COMPULSION_TIMER;
+            *BIOS_COMPULSION_FRAME_TIMER = *BRAM_DIP_COMPULSION_FRAME_TIMER;
         }
 
-        // Play sound if we have a active game
-        // TODO: Create a sound that isnt depended on a game being active?
-        if (0x00 == *BIOS_SWPMODE) {
+        // Only play sound if we have an active game
+        if (0x00 != (*BIOS_SYSTEM_MODE & 0x80)) {
             SUBR_CART_COIN_SOUND();
+        } else {
+            *REG_SOUND = 0x7F;
+        }
+        if (0x00 != (*BIOS_SYSTEM_MODE & 0x80) && USER_REQUEST_TITLE != *BIOS_USER_REQUEST) {
+            SUBR_CART_DEMO_END();
+        }
 
-            if (0x03 != *BIOS_USER_REQUEST) {
-                *BIOS_USER_REQUEST = 0x03;
-                SUBR_CART_DEMO_END();
-                start_game();
-            }            
+        if (USER_REQUEST_TITLE != *BIOS_USER_REQUEST) {
+            *BIOS_USER_REQUEST = USER_REQUEST_TITLE;
+            system_return();
         }
     }
 }

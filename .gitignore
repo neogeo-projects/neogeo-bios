@@ -1,4 +1,5 @@
 .vscode/*
 assets/*
+!assets/.gitkeep
 build/*
 tools/checksum/build/*

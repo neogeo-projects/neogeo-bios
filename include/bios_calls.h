@@ -4,8 +4,6 @@
 #include <stdint.h>
 
 extern void _start(void);
-#define SROM_MVS_FLAG     ((volatile uint8_t *) 0xC00400)   // 0=AES, 0x80=MVS
-#define SROM_COUNTRY_CODE ((volatile uint8_t *) 0xC00401)   // 0x00 = Japan, 0x01 = USA, 0x02 = Europe
 //_start                                // 0xC00402-0xC00432
 //extern void system_int1(void);        // 0xC00438
 //extern void system_int2(void);        // 0xC0043E
